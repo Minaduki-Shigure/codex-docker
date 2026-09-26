@@ -1,0 +1,39 @@
+name: codex-docker
+
+services:
+  codex:
+    image: ${CODEX_IMAGE:-ghcr.io/minaduki-shigure/codex-docker:latest}
+    pull_policy: never
+    init: true
+    stdin_open: true
+    tty: true
+    user: node
+    working_dir: /workspace
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    environment:
+      TERM: ${TERM:-xterm-256color}
+      CODEX_HOME: /home/node/.codex
+      OPENCODE_GO_API_KEY: ${OPENCODE_GO_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      HTTP_PROXY: ${CODEX_HTTP_PROXY:-}
+      HTTPS_PROXY: ${CODEX_HTTPS_PROXY:-}
+      ALL_PROXY: ${CODEX_ALL_PROXY:-}
+      NO_PROXY: ${CODEX_NO_PROXY:-localhost,127.0.0.1,::1,host.docker.internal}
+      http_proxy: ${CODEX_HTTP_PROXY:-}
+      https_proxy: ${CODEX_HTTPS_PROXY:-}
+      all_proxy: ${CODEX_ALL_PROXY:-}
+      no_proxy: ${CODEX_NO_PROXY:-localhost,127.0.0.1,::1,host.docker.internal}
+    volumes:
+      - type: bind
+        source: ${CODEX_CONFIG_DIR:-./config}
+        target: /home/node/.codex
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${CODEX_WORKSPACE_DIR:-./workspace}
+        target: /workspace
+        bind:
+          create_host_path: false

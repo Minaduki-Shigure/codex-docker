@@ -1,0 +1,6 @@
+**
+!Dockerfile
+!dist/
+!dist/package/
+!dist/package/**
+!dist/build-inputs.json

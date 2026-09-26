@@ -25,21 +25,22 @@ and `workspace/` directories are empty placeholders; their contents are ignored
 by Git. Alternatively, set `CODEX_CONFIG_DIR` and `CODEX_WORKSPACE_DIR` to existing
 absolute paths. On Linux, both mounts must be writable by UID/GID 1000.
 
-First installation or an intentional update:
-
-```sh
-docker compose pull --policy always codex
-```
-
-Ordinary use, with no registry lookup or automatic upgrade:
+Run Codex, checking for an updated image before each new container starts:
 
 ```sh
 docker compose run --rm codex
 ```
 
-The service uses `pull_policy: never`, including for `latest`. A missing local
-image is an error until the explicit pull command is run. An existing running
-container does not change when an image is pulled.
+The service uses `pull_policy: always`. It checks the registry on each run and
+downloads only layers missing from the local cache. Unchanged images are not
+downloaded again. An existing running container is not upgraded in place.
+
+Registry access is required for the automatic check. To use an already-cached
+image offline, or temporarily skip updates:
+
+```sh
+docker compose run --rm --pull never codex
+```
 
 Open a shell instead of Codex:
 

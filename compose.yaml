@@ -3,7 +3,7 @@ name: codex-docker
 services:
   codex:
     image: ${CODEX_IMAGE:-ghcr.io/minaduki-shigure/codex-docker:latest}
-    pull_policy: never
+    pull_policy: always
     init: true
     stdin_open: true
     tty: true

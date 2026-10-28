@@ -5,6 +5,12 @@ official `node:24-bookworm-slim` image, not the large `codex-universal` image.
 
 Image: `ghcr.io/minaduki-shigure/codex-docker:latest`
 
+This repository also maintains a separate [Translation MCP](translation-mcp/)
+image at `ghcr.io/minaduki-shigure/translation-mcp:latest`. It delegates text-only
+localization and optional review to Magpie, without changing Codex's main model
+or distributing upstream provider keys. It has an independent release workflow;
+the Codex image and default Compose example remain unchanged.
+
 ## Included
 
 - The complete, signed official Codex Linux release package, including its

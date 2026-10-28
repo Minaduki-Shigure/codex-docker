@@ -1,0 +1,175 @@
+name: Build and publish translation MCP
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'translation-mcp/**'
+      - '.github/workflows/publish-translation.yml'
+      - 'scripts/scan.sh'
+  pull_request:
+    paths:
+      - 'translation-mcp/**'
+      - '.github/workflows/publish-translation.yml'
+      - 'scripts/scan.sh'
+  schedule:
+    - cron: '47 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: translation-image-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/minaduki-shigure/translation-mcp
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Install locked test dependencies
+        run: |
+          python3 -m venv "$RUNNER_TEMP/translation-tests"
+          "$RUNNER_TEMP/translation-tests/bin/pip" install --only-binary=:all: -r translation-mcp/requirements-dev.txt
+      - name: Offline protocol and translation tests
+        working-directory: translation-mcp
+        run: |
+          "$RUNNER_TEMP/translation-tests/bin/python" -m pytest -q
+      - name: Check container definition
+        run: docker compose -f translation-mcp/compose.example.yml config --quiet
+      - name: Check PR image without publishing
+        if: github.event_name == 'pull_request'
+        run: |
+          docker build -t translation-mcp:pr translation-mcp
+          docker run --rm -i --network none --read-only --tmpfs /tmp:size=32m,mode=1777 \
+            --cap-drop ALL --security-opt no-new-privileges:true \
+            --entrypoint python translation-mcp:pr - < translation-mcp/tests/image_smoke.py
+
+  build:
+    needs: checks
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          version: v0.37.1
+          driver-opts: image=moby/buildkit@sha256:6c2fa84a6b61ccd72899dde4239f8d5717f05f9a8ca6f3cad185fb1a95a94de3
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - id: date
+        run: printf 'value=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+      - name: Build candidate with SBOM and provenance
+        id: image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: translation-mcp
+          platforms: linux/${{ matrix.arch }}
+          push: true
+          tags: ${{ env.IMAGE }}:candidate-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.arch }}
+          build-args: |
+            VCS_REF=${{ github.sha }}
+            BUILD_DATE=${{ steps.date.outputs.value }}
+          cache-from: type=gha,scope=translation-${{ matrix.arch }}
+          cache-to: type=gha,mode=min,scope=translation-${{ matrix.arch }}
+          provenance: mode=max
+          attests: type=sbom,generator=docker/buildkit-syft-scanner@sha256:ae4f3b554449e7e25548e7d8ccc029d17357348e30c6e3df01b92bc93654d6a9
+      - name: Test exact candidate without external network or credentials
+        env:
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          docker pull "$IMAGE@$DIGEST"
+          docker run --rm -i --network none --read-only --tmpfs /tmp:size=32m,mode=1777 \
+            --cap-drop ALL --security-opt no-new-privileges:true \
+            --entrypoint python "$IMAGE@$DIGEST" - < translation-mcp/tests/image_smoke.py
+      - name: Generate vulnerability report
+        env:
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: bash scripts/scan.sh "$IMAGE@$DIGEST"
+      - name: Record tested architecture
+        env:
+          DIGEST: ${{ steps.image.outputs.digest }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          printf '%s\n' "$DIGEST" > "dist/digest-$ARCH.txt"
+          cp translation-mcp/requirements.txt dist/requirements.txt
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: translation-tested-${{ matrix.arch }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 90
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: translation-tested-*
+          path: tested
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          version: v0.37.1
+          driver-opts: image=moby/buildkit@sha256:6c2fa84a6b61ccd72899dde4239f8d5717f05f9a8ca6f3cad185fb1a95a94de3
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Assemble tested architectures
+        id: release
+        run: |
+          set -euo pipefail
+          amd64=$(cat tested/translation-tested-amd64/digest-amd64.txt)
+          arm64=$(cat tested/translation-tested-arm64/digest-arm64.txt)
+          [[ "$amd64" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$arm64" =~ ^sha256:[0-9a-f]{64}$ ]]
+          tag="build-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          docker buildx imagetools create --tag "$IMAGE:$tag" --tag "$IMAGE:sha-$GITHUB_SHA" "$IMAGE@$amd64" "$IMAGE@$arm64"
+          digest=$(docker buildx imagetools inspect "$IMAGE:$tag" --format '{{.Manifest.Digest}}')
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          printf 'digest=%s\ntag=%s\n' "$digest" "$tag" >> "$GITHUB_OUTPUT"
+      - name: Attest multi-platform image
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.release.outputs.digest }}
+          push-to-registry: true
+      - name: Promote only verified builds to latest
+        env:
+          DIGEST: ${{ steps.release.outputs.digest }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          docker buildx imagetools create --tag "$IMAGE:latest" "$IMAGE@$DIGEST"
+          printf '### Translation MCP published\n\n- `%s:%s`\n- `%s@%s`\n' "$IMAGE" "$TAG" "$IMAGE" "$DIGEST" >> "$GITHUB_STEP_SUMMARY"

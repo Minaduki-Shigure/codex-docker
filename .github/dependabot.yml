@@ -5,3 +5,16 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+  - package-ecosystem: pip
+    directory: /translation-mcp
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      translation-runtime:
+        patterns: ["*"]
+  - package-ecosystem: docker
+    directory: /translation-mcp
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

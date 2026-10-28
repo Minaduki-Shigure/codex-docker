@@ -1,0 +1,8 @@
+{
+  "primary_model": "deepseek/deepseek-flash",
+  "fallback_model": "openrouter/~google/gemini-flash-latest",
+  "max_input_chars": 16000,
+  "max_output_tokens": 8192,
+  "request_timeout_seconds": 120,
+  "concurrency": 2
+}

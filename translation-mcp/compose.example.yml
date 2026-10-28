@@ -1,0 +1,48 @@
+# Attach to the existing Magpie network; this does not start Magpie or Codex.
+services:
+  translation-mcp:
+    image: ${TRANSLATION_MCP_IMAGE:-ghcr.io/minaduki-shigure/translation-mcp:latest}
+    pull_policy: ${TRANSLATION_MCP_PULL_POLICY:-always}
+    init: true
+    user: "65532:65532"
+    read_only: true
+    tmpfs: ["/tmp:size=32m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      MAGPIE_BASE_URL: ${MAGPIE_BASE_URL:-http://magpie:3425/v1}
+      DO_NOT_TRACK: "1"
+    networks: [agent]
+    volumes:
+      - type: bind
+        source: ./config
+        target: /config
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./secrets
+        target: /run/secrets
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./state
+        target: /data
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3).read()"]
+      interval: 5s
+      timeout: 5s
+      start_period: 5s
+      retries: 6
+    logging:
+      driver: local
+      options:
+        max-size: "5m"
+        max-file: "2"
+networks:
+  agent:
+    external: true
+    name: ${MAGPIE_NETWORK:-codex-docker_agent}

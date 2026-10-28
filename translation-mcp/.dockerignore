@@ -1,0 +1,7 @@
+**
+!Dockerfile
+!requirements.txt
+!translation_mcp/
+!translation_mcp/**
+**/__pycache__
+**/*.pyc
